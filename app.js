@@ -25,10 +25,10 @@ let TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '-5078231608';
 let REDIRECT_URL = process.env.REDIRECT_URL || 'https://calendly.com/william-academyredbull/30min';
 
 // Allowed origins
-const SELF_ORIGIN = `https://panel.pobremoa.vercel.app:${PORT}`;
+const SELF_ORIGIN = `https://panelipobremoa.vercel.app:${PORT}`;
 const ALLOWED_ORIGINS = [
   'https://pobremo.vercel.app',       // your Vercel frontend
-  'https://panel.pobremoa.vercel.app', // your backend HTTPS domain
+  'https://panelipobremoa.vercel.app', // your backend HTTPS domain
 ];
 
 
